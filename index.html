@@ -95,11 +95,13 @@
   }
   #slowBtn svg { width: 36px; height: 36px; }
   #slowBtn .stop { display: none; }
-  #slowBtn.on { background: var(--fg); color: #000; }
-  #slowBtn.on .play { display: none; }
-  #slowBtn.on .stop { display: block; }
+  #slowBtn:active { transform: scale(.94); }
   #slowBtn:disabled { opacity: .35; }
-  #btnHint { justify-self: end; font-size: 12px; color: var(--muted); text-align: right; max-width: 90px; }
+  #liveBtn {
+    justify-self: end; height: 54px; padding: 0 16px; border-radius: 999px; border: 0;
+    background: var(--panel); color: var(--fg); font-size: 13px; font-weight: 700; letter-spacing: .5px;
+  }
+  #liveBtn:disabled { opacity: .3; }
 
   button { font-family: inherit; cursor: pointer; }
 
@@ -129,7 +131,7 @@
   </div>
 
   <div id="controls">
-    <div id="status">Pulsa ▶ para ver ralentizado</div>
+    <div id="status">Pulsa ▶ para ralentizar desde ahora</div>
 
     <div class="group">
       <span class="label">Velocidad</span>
@@ -149,11 +151,11 @@
           <path d="M14.5 8.8v1.9h-1.9"/><path d="M9.5 17.2v-1.9h1.9"/>
         </svg>
       </button>
-      <button id="slowBtn" aria-label="Empezar a ralentizar" disabled>
+      <button id="slowBtn" aria-label="Ralentizar desde ahora" disabled>
         <svg class="play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10.5-6.5z"/></svg>
         <svg class="stop" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>
       </button>
-      <div id="btnHint"></div>
+      <button id="liveBtn" aria-label="Volver al directo">DIRECTO</button>
     </div>
   </div>
 </div>
@@ -171,7 +173,8 @@
      un poco atrás (el retraso crece poco a poco).
    - Cuando el retraso llega al máximo elegido, salta al momento actual
      y sigue ralentizando desde ahí.
-   - Al pulsar ■ se vuelve al directo.
+   - Cada pulsación de ▶ reinicia la cámara lenta desde ese instante.
+   - El botón DIRECTO vuelve a la imagen en tiempo real.
    ===================================================================== */
 const SPEEDS = [0.5, 0.65, 0.75, 0.85];  // velocidades suaves ("solo un poco" más lento)
 const MAX_LAGS = [3, 5, 8];              // segundos de retraso antes de volver al directo
@@ -190,7 +193,7 @@ const statusEl = $('status');
 const modeText = $('modeText');
 const progressBar = $('progressBar');
 const slowBtn = $('slowBtn');
-const btnHint = $('btnHint');
+const liveBtn = $('liveBtn');
 const flipBtn = $('flipBtn');
 
 /* ---------- Estado ---------- */
@@ -328,23 +331,24 @@ function startSlow() {
   slow.active = true;
   restartSlowFromNow(performance.now());
   stage.classList.add('slow');
-  slowBtn.classList.add('on');
-  slowBtn.setAttribute('aria-label', 'Volver al directo');
-  requestWakeLock();
+  liveBtn.disabled = false;
+  updateStatus(0);
+  if (!state.wakeLock) requestWakeLock();
 }
 
 function stopSlow() {
   slow.active = false;
   clearBuffer();
   stage.classList.remove('slow');
-  slowBtn.classList.remove('on');
-  slowBtn.setAttribute('aria-label', 'Empezar a ralentizar');
+  liveBtn.disabled = true;
   progressBar.style.width = '0%';
   releaseWakeLock();
   updateStatus(0);
 }
 
-slowBtn.addEventListener('click', () => (slow.active ? stopSlow() : startSlow()));
+// Cada pulsación (re)inicia la cámara lenta desde este mismo instante.
+slowBtn.addEventListener('click', startSlow);
+liveBtn.addEventListener('click', stopSlow);
 
 /** Búsqueda binaria: último frame con t <= instante pedido. */
 function findFrame(t) {
@@ -459,7 +463,6 @@ async function openCamera(facing) {
     const s = (track && track.getSettings) ? track.getSettings() : {};
     state.facing = s.facingMode || facing;
     state.mirrored = state.facing === 'user';
-    btnHint.textContent = s.frameRate ? `${Math.round(s.frameRate)} fps` : '';
     if (track) track.addEventListener('ended', () => {
       stopSlow();
       showError('Se ha perdido la conexión con la cámara.', true);
@@ -557,7 +560,7 @@ function updateStatus(lagMs) {
     statusEl.textContent = `Ralentizado a ${fmt(state.speed)}x · ${fmt((lagMs / 1000).toFixed(1))} s de retraso`;
   } else {
     modeText.textContent = 'EN DIRECTO';
-    statusEl.textContent = 'Pulsa ▶ para ver ralentizado';
+    statusEl.textContent = 'Pulsa ▶ para ralentizar desde ahora';
   }
 }
 
@@ -594,6 +597,7 @@ document.addEventListener('visibilitychange', () => {
 /* ---------- Arranque ---------- */
 slow.speedUsed = state.speed;
 updateStatus(0);
+liveBtn.disabled = true;
 resizeCanvas();
 openCamera(state.facing);
 </script>
