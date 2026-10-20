@@ -12,7 +12,7 @@
     --fg: #f5f5f7;
     --muted: #8e8e93;
     --panel: #1c1c1e;
-    --accent: #0a84ff;
+    --accent: #ff3b30;
     --radius: 14px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -40,15 +40,12 @@
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.6);
     font-weight: 700; font-size: 14px; letter-spacing: .5px; font-variant-numeric: tabular-nums;
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
   }
   #modeBadge .dot { width: 9px; height: 9px; border-radius: 50%; background: #30d158; }
-  #stage.slow #modeBadge { background: rgba(10,132,255,.9); }
+  #stage.slow #modeBadge { background: rgba(255,59,48,.9); }
   #stage.slow #modeBadge .dot { background: #fff; animation: blink 1s infinite; }
   @keyframes blink { 50% { opacity: .25; } }
-
-  #progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.12); }
-  #progressBar { height: 100%; width: 0; background: var(--accent); }
 
   #overlay {
     position: absolute; inset: 0; display: none; flex-direction: column;
@@ -72,7 +69,6 @@
   .group { display: flex; flex-direction: column; gap: 6px; }
   .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding-left: 2px; }
   .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .seg.three { grid-template-columns: repeat(3, 1fr); }
   .seg button {
     min-height: 44px; border: 0; border-radius: 12px;
     background: var(--panel); color: var(--fg); font-size: 16px; font-weight: 600;
@@ -88,15 +84,15 @@
   #flipBtn:disabled { opacity: .3; }
   #flipBtn svg { width: 26px; height: 26px; }
 
-  /* Botón principal: ▶ para ralentizar, ■ para volver al directo */
+  /* Botón principal: cada pulsación reinicia la cámara lenta desde ese instante */
   #slowBtn {
     width: 84px; height: 84px; border-radius: 50%; border: 0;
     background: var(--accent); color: #fff; display: grid; place-items: center; padding: 0;
   }
   #slowBtn svg { width: 36px; height: 36px; }
-  #slowBtn .stop { display: none; }
   #slowBtn:active { transform: scale(.94); }
   #slowBtn:disabled { opacity: .35; }
+
   #liveBtn {
     justify-self: end; height: 54px; padding: 0 16px; border-radius: 999px; border: 0;
     background: var(--panel); color: var(--fg); font-size: 13px; font-weight: 700; letter-spacing: .5px;
@@ -123,7 +119,6 @@
   <div id="stage">
     <canvas id="preview"></canvas>
     <div id="modeBadge"><span class="dot"></span><span id="modeText">EN DIRECTO</span></div>
-    <div id="progress"><div id="progressBar"></div></div>
     <div id="overlay" class="show">
       <div id="overlayMsg">Solicitando acceso a la cámara…</div>
       <button id="overlayBtn" hidden>Reintentar</button>
@@ -138,11 +133,6 @@
       <div class="seg" id="speedSeg" role="group" aria-label="Velocidad"></div>
     </div>
 
-    <div class="group">
-      <span class="label">Volver al directo cuando el retraso llegue a</span>
-      <div class="seg three" id="lagSeg" role="group" aria-label="Retraso máximo"></div>
-    </div>
-
     <div class="main-row">
       <button id="flipBtn" aria-label="Cambiar cámara" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -152,10 +142,9 @@
         </svg>
       </button>
       <button id="slowBtn" aria-label="Ralentizar desde ahora" disabled>
-        <svg class="play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10.5-6.5z"/></svg>
-        <svg class="stop" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10.5-6.5z"/></svg>
       </button>
-      <button id="liveBtn" aria-label="Volver al directo">DIRECTO</button>
+      <button id="liveBtn" aria-label="Volver al directo" disabled>DIRECTO</button>
     </div>
   </div>
 </div>
@@ -167,18 +156,21 @@
 
 /* =====================================================================
    CÓMO FUNCIONA
-   - Sin pulsar nada se ve la cámara en directo.
+   - Al abrir se ve la cámara en directo.
    - Al pulsar ▶ la imagen empieza a reproducirse más lenta desde ese
-     mismo instante. Como va más lenta que la realidad, se va quedando
-     un poco atrás (el retraso crece poco a poco).
-   - Cuando el retraso llega al máximo elegido, salta al momento actual
-     y sigue ralentizando desde ahí.
-   - Cada pulsación de ▶ reinicia la cámara lenta desde ese instante.
-   - El botón DIRECTO vuelve a la imagen en tiempo real.
+     mismo instante (sin retraso inicial).
+   - Solo se reinicia cuando vuelves a pulsar ▶. Nunca salta sola.
+   - DIRECTO vuelve a la imagen en tiempo real.
+   Los frames se guardan comprimidos en JPEG para poder ralentizar
+   durante mucho tiempo sin agotar la memoria del móvil.
    ===================================================================== */
-const SPEEDS = [0.5, 0.65, 0.75, 0.85];  // velocidades suaves ("solo un poco" más lento)
-const MAX_LAGS = [3, 5, 8];              // segundos de retraso antes de volver al directo
-const STORAGE_KEY = 'camara-ralentizada-v2';
+const SPEEDS = [0.5, 0.65, 0.75, 0.85];
+const STORAGE_KEY = 'camara-ralentizada-v3';
+const CAPTURE_FPS = 30;          // frames guardados por segundo
+const CAPTURE_LONG_SIDE = 640;   // resolución de los frames guardados (lado largo)
+const JPEG_QUALITY = 0.72;
+const MAX_STORED_FRAMES = 6000;  // tope de seguridad (~3 min de retraso acumulado)
+const DECODE_AHEAD = 3;          // frames que se decodifican por adelantado
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -191,120 +183,65 @@ const overlayMsg = $('overlayMsg');
 const overlayBtn = $('overlayBtn');
 const statusEl = $('status');
 const modeText = $('modeText');
-const progressBar = $('progressBar');
 const slowBtn = $('slowBtn');
 const liveBtn = $('liveBtn');
 const flipBtn = $('flipBtn');
 
 /* ---------- Estado ---------- */
-const state = {
-  speed: 0.75,
-  maxLag: 5,
-  facing: 'environment',
-  mirrored: false,
-  stream: null,
-  canFlip: false,
-  wakeLock: null
-};
+const state = { speed: 0.75, facing: 'environment', mirrored: false, stream: null, canFlip: false, wakeLock: null };
 loadSettings();
 
 /* =====================================================================
-   BUFFER DE FRAMES { t, img, w, h }
-   t = momento de captura (performance.now()); img = ImageBitmap o <canvas>.
-   Solo se guardan frames mientras está activo el modo ralentizado.
+   BUFFER DE FRAMES
+   Cada frame: { t, blob, img, decoding }
+     t    -> momento de captura (performance.now())
+     blob -> imagen JPEG comprimida (ocupa poco)
+     img  -> versión decodificada lista para dibujar (solo los próximos frames)
    ===================================================================== */
-const buffer = { frames: [], generation: 0, pending: 0, lastCapture: 0 };
-let captureMode = (typeof window.createImageBitmap === 'function') ? 'bitmap' : 'canvas';
-const canvasPool = [];
+const buffer = { frames: [], generation: 0, encoding: 0, lastCapture: 0 };
+const scratch = document.createElement('canvas');
+const scratchCtx = scratch.getContext('2d');
 
-/* Modo ralentizado:
-   start = momento real desde el que se reproduce
-   c0    = momento (reloj) en que empezó esta tanda
-   La posición reproducida es: start + (ahora − c0) × velocidad */
-const slow = { active: false, start: 0, c0: 0, speedUsed: state.speed };
+/* Modo lento: posición reproducida = start + (ahora − c0) × velocidad */
+const slow = { active: false, start: 0, c0: 0 };
+let shownFrame = null;   // último frame dibujado (se conserva para no parpadear)
 
-/** Resolución/fps de captura según el retraso máximo, para limitar la memoria. */
-function captureConfig() {
-  if (state.maxLag <= 3) return { fps: 30, longSide: 720 };
-  if (state.maxLag <= 5) return { fps: 30, longSide: 600 };
-  return { fps: 30, longSide: 480 };
+function releaseImg(f) {
+  if (f && f.img) { if (typeof f.img.close === 'function') f.img.close(); f.img = null; }
 }
-function maxFrames() { return Math.ceil(state.maxLag * captureConfig().fps * 1.3) + 15; }
-
-function scaledSize(vw, vh, longSide) {
-  const scale = Math.min(1, longSide / Math.max(vw, vh));
-  return { w: Math.max(2, Math.round(vw * scale)), h: Math.max(2, Math.round(vh * scale)) };
-}
-
-/** Libera un frame: cierra el ImageBitmap o devuelve el canvas a la reserva. */
-function releaseFrame(f) {
-  if (!f || !f.img) return;
-  if (typeof f.img.close === 'function') f.img.close();
-  else if (f.img instanceof HTMLCanvasElement && canvasPool.length < 64) canvasPool.push(f.img);
-  f.img = null;
-}
-
 function clearBuffer() {
-  buffer.frames.forEach(releaseFrame);
+  buffer.frames.forEach(releaseImg);
   buffer.frames = [];
   buffer.generation++;
   buffer.lastCapture = 0;
+  shownFrame = null;
 }
 
-/** Elimina los frames que ya se han mostrado (anteriores a la posición de reproducción). */
-function evictOldFrames(now) {
-  const frames = buffer.frames;
-  const playhead = currentPlayhead(now);
-  // Se conserva el último frame anterior a la posición actual para poder dibujarlo.
-  while (frames.length > 1 && frames[1].t <= playhead) releaseFrame(frames.shift());
-  const limit = maxFrames();
-  while (frames.length > limit) releaseFrame(frames.shift());
-}
-
-function pushFrame(frame) {
-  const frames = buffer.frames;
-  frames.push(frame);
-  if (frames.length > 1 && frames[frames.length - 2].t > frame.t) frames.sort((a, b) => a.t - b.t);
-  evictOldFrames(performance.now());
-}
-
-function getPoolCanvas(w, h) {
-  const c = canvasPool.pop() || document.createElement('canvas');
-  if (c.width !== w) c.width = w;
-  if (c.height !== h) c.height = h;
-  return c;
-}
-
-/** Captura un frame de la cámara (solo en modo ralentizado). */
+/** Guarda un frame de la cámara comprimido en JPEG (solo en modo lento). */
 function captureFrame(now) {
   if (!slow.active || !state.stream || video.readyState < 2 || !video.videoWidth) return;
-  const { fps, longSide } = captureConfig();
-  if (now - buffer.lastCapture < 1000 / fps - 4) return;
+  if (now - buffer.lastCapture < 1000 / CAPTURE_FPS - 4) return;
+  if (buffer.encoding >= 4) return; // el móvil va justo: se salta este frame
+  if (buffer.frames.length >= MAX_STORED_FRAMES) return;
   buffer.lastCapture = now;
-  const { w, h } = scaledSize(video.videoWidth, video.videoHeight, longSide);
-  const gen = buffer.generation;
 
-  if (captureMode === 'bitmap') {
-    if (buffer.pending >= 3) return;
-    buffer.pending++;
-    let p;
-    try {
-      p = createImageBitmap(video, { resizeWidth: w, resizeHeight: h, resizeQuality: 'low' });
-    } catch (e) { buffer.pending--; captureMode = 'canvas'; return; }
-    p.then((img) => {
-      buffer.pending--;
-      if (gen !== buffer.generation) { img.close(); return; }
-      pushFrame({ t: now, img, w, h });
-    }).catch(() => { buffer.pending--; captureMode = 'canvas'; });
-  } else {
-    // Alternativa compatible sin createImageBitmap.
-    const c = getPoolCanvas(w, h);
-    c.getContext('2d').drawImage(video, 0, 0, w, h);
-    pushFrame({ t: now, img: c, w, h });
-  }
+  const scale = Math.min(1, CAPTURE_LONG_SIDE / Math.max(video.videoWidth, video.videoHeight));
+  const w = Math.round(video.videoWidth * scale), h = Math.round(video.videoHeight * scale);
+  if (scratch.width !== w) scratch.width = w;
+  if (scratch.height !== h) scratch.height = h;
+  scratchCtx.drawImage(video, 0, 0, w, h);
+
+  const gen = buffer.generation;
+  buffer.encoding++;
+  scratch.toBlob((blob) => {
+    buffer.encoding--;
+    if (!blob || gen !== buffer.generation) return;
+    const frames = buffer.frames;
+    frames.push({ t: now, blob, img: null, decoding: false, w, h });
+    if (frames.length > 1 && frames[frames.length - 2].t > now) frames.sort((a, b) => a.t - b.t);
+  }, 'image/jpeg', JPEG_QUALITY);
 }
 
-// Con requestVideoFrameCallback se captura justo cuando llega cada frame de la cámara.
 const hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
 function onVideoFrame() {
   captureFrame(performance.now());
@@ -312,24 +249,57 @@ function onVideoFrame() {
 }
 if (hasRVFC) video.requestVideoFrameCallback(onVideoFrame);
 
+/** Decodifica un JPEG a algo dibujable (ImageBitmap, o <img> si no hay createImageBitmap). */
+function decodeBlob(blob) {
+  if (typeof window.createImageBitmap === 'function') return createImageBitmap(blob);
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); resolve(im); };
+    im.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    im.src = url;
+  });
+}
+
+function ensureDecoded(f) {
+  if (!f || f.img || f.decoding) return;
+  f.decoding = true;
+  const gen = buffer.generation;
+  decodeBlob(f.blob).then((img) => {
+    f.decoding = false;
+    if (gen !== buffer.generation || !f.blob) { if (img.close) img.close(); return; }
+    f.img = img;
+  }).catch(() => { f.decoding = false; });
+}
+
+/** Índice del último frame con t <= instante pedido (búsqueda binaria). */
+function findIndex(t) {
+  const frames = buffer.frames;
+  let lo = 0, hi = frames.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (frames[mid].t <= t) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return found;
+}
+
+/** Quita los frames ya mostrados para liberar memoria. */
+function dropPlayedFrames(idx) {
+  if (idx <= 0) return;
+  const removed = buffer.frames.splice(0, idx);
+  removed.forEach((f) => { if (f !== shownFrame) releaseImg(f); f.blob = null; });
+}
+
 /* =====================================================================
-   REPRODUCCIÓN
+   CONTROLES DE MODO
    ===================================================================== */
-function currentPlayhead(now) {
-  return slow.start + (now - slow.c0) * state.speed;
-}
-
-/** Empieza (o reinicia) la reproducción lenta desde el instante actual. */
-function restartSlowFromNow(now) {
-  clearBuffer();
-  slow.start = now;
-  slow.c0 = now;
-}
-
 function startSlow() {
   if (!state.stream) return;
+  const now = performance.now();
+  clearBuffer();
   slow.active = true;
-  restartSlowFromNow(performance.now());
+  slow.start = now;   // empieza desde este mismo instante: sin retraso inicial
+  slow.c0 = now;
   stage.classList.add('slow');
   liveBtn.disabled = false;
   updateStatus(0);
@@ -341,27 +311,16 @@ function stopSlow() {
   clearBuffer();
   stage.classList.remove('slow');
   liveBtn.disabled = true;
-  progressBar.style.width = '0%';
   releaseWakeLock();
   updateStatus(0);
 }
 
-// Cada pulsación (re)inicia la cámara lenta desde este mismo instante.
-slowBtn.addEventListener('click', startSlow);
+slowBtn.addEventListener('click', startSlow);   // cada pulsación reinicia desde ahora
 liveBtn.addEventListener('click', stopSlow);
 
-/** Búsqueda binaria: último frame con t <= instante pedido. */
-function findFrame(t) {
-  const frames = buffer.frames;
-  let lo = 0, hi = frames.length - 1, found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (frames[mid].t <= t) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
-  }
-  return found >= 0 ? frames[found] : frames[0];
-}
-
-/* ---------- Canvas ---------- */
+/* =====================================================================
+   DIBUJO
+   ===================================================================== */
 let canvasW = 0, canvasH = 0;
 function resizeCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -373,7 +332,6 @@ function resizeCanvas() {
 if ('ResizeObserver' in window) new ResizeObserver(resizeCanvas).observe(canvas);
 window.addEventListener('resize', resizeCanvas);
 
-/** Dibuja una imagen ajustada a la pantalla sin deformarla. */
 function drawImageFit(img, iw, ih) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, canvasW, canvasH);
@@ -394,32 +352,31 @@ function loop(now) {
   if (!canvasW) resizeCanvas();
 
   if (!slow.active) {
-    // Directo: se pinta la cámara tal cual.
     if (state.stream && video.readyState >= 2) drawImageFit(video, video.videoWidth, video.videoHeight);
   } else {
-    let playhead = currentPlayhead(now);
-    let lag = now - playhead;
-    // Retraso máximo alcanzado: saltar al momento actual y seguir ralentizando.
-    if (lag >= state.maxLag * 1000) {
-      restartSlowFromNow(now);
-      playhead = now; lag = 0;
+    const playhead = slow.start + (now - slow.c0) * state.speed;
+    const idx = findIndex(playhead);
+    if (idx >= 0) {
+      const frames = buffer.frames;
+      // Decodificar el frame actual y los siguientes por adelantado.
+      for (let i = idx; i < Math.min(frames.length, idx + 1 + DECODE_AHEAD); i++) ensureDecoded(frames[i]);
+      const f = frames[idx];
+      if (f.img && f !== shownFrame) {
+        if (shownFrame && shownFrame !== f && !frames.includes(shownFrame)) releaseImg(shownFrame);
+        shownFrame = f;
+      }
+      dropPlayedFrames(idx);
     }
-    if (buffer.frames.length) {
-      const f = findFrame(playhead);
-      drawImageFit(f.img, f.w, f.h);
-    } else if (video.readyState >= 2) {
-      drawImageFit(video, video.videoWidth, video.videoHeight); // aún no hay frames guardados
-    }
-    evictOldFrames(now);
-    progressBar.style.width = Math.min(100, (lag / (state.maxLag * 1000)) * 100).toFixed(1) + '%';
-    if (now - lastStatusUpdate > 100) { updateStatus(lag); lastStatusUpdate = now; }
+    if (shownFrame && shownFrame.img) drawImageFit(shownFrame.img, shownFrame.w, shownFrame.h);
+
+    if (now - lastStatusUpdate > 150) { updateStatus(now - playhead); lastStatusUpdate = now; }
   }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
 /* =====================================================================
-   CÁMARA (solo vídeo, sin micrófono)
+   CÁMARA (solo vídeo)
    ===================================================================== */
 function stopStream() {
   if (state.stream) state.stream.getTracks().forEach((t) => t.stop());
@@ -443,19 +400,15 @@ async function getStream(facing) {
 }
 
 async function openCamera(facing) {
-  if (!window.isSecureContext) {
-    return showError('La cámara solo funciona en una conexión segura (HTTPS).', false);
-  }
+  if (!window.isSecureContext) return showError('La cámara solo funciona en una conexión segura (HTTPS).', false);
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return showError('Este navegador no permite acceder a la cámara. Prueba con Chrome actualizado.', false);
   }
-  const wasSlow = slow.active;
-  if (wasSlow) stopSlow();
+  stopSlow();
   showOverlay('Solicitando acceso a la cámara…');
   slowBtn.disabled = true;
   flipBtn.disabled = true;
   stopStream();
-
   try {
     const stream = await getStream(facing);
     state.stream = stream;
@@ -472,7 +425,6 @@ async function openCamera(facing) {
     hideOverlay();
     slowBtn.disabled = false;
     await updateFlipAvailability();
-    if (wasSlow) startSlow();
   } catch (err) {
     showError(cameraErrorMessage(err), true);
   }
@@ -501,12 +453,10 @@ async function updateFlipAvailability() {
   } catch (e) { state.canFlip = false; }
   flipBtn.disabled = !state.canFlip;
 }
-
 flipBtn.addEventListener('click', () => {
   if (state.canFlip) openCamera(state.facing === 'user' ? 'environment' : 'user');
 });
 
-/* Pantalla siempre encendida mientras se ralentiza (si el navegador lo permite). */
 async function requestWakeLock() {
   try { if ('wakeLock' in navigator) state.wakeLock = await navigator.wakeLock.request('screen'); }
   catch (e) { state.wakeLock = null; }
@@ -517,47 +467,37 @@ function releaseWakeLock() {
 }
 
 /* =====================================================================
-   CONTROLES
+   VELOCIDAD Y ESTADO
    ===================================================================== */
 function fmt(n) { return String(n).replace('.', ','); }
 
-function buildSegment(container, values, current, label, onSelect) {
-  values.forEach((v) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label(v);
-    b.setAttribute('aria-pressed', String(v === current));
-    b.addEventListener('click', () => {
-      container.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', 'false'));
-      b.setAttribute('aria-pressed', 'true');
-      onSelect(v);
-    });
-    container.appendChild(b);
+const speedSeg = $('speedSeg');
+SPEEDS.forEach((v) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = `${fmt(v)}x`;
+  b.setAttribute('aria-pressed', String(v === state.speed));
+  b.addEventListener('click', () => {
+    speedSeg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', 'false'));
+    b.setAttribute('aria-pressed', 'true');
+    // Mantener la posición actual para que el cambio de velocidad sea suave.
+    if (slow.active) {
+      const now = performance.now();
+      const playhead = slow.start + (now - slow.c0) * state.speed;
+      slow.c0 = now - (playhead - slow.start) / v;
+    }
+    state.speed = v;
+    saveSettings();
+    updateStatus(0);
   });
-}
-
-buildSegment($('speedSeg'), SPEEDS, state.speed, (v) => `${fmt(v)}x`, (v) => {
-  // Mantener la posición actual para que el cambio de velocidad sea suave.
-  if (slow.active) {
-    const now = performance.now();
-    const playhead = slow.start + (now - slow.c0) * slow.speedUsed;
-    slow.c0 = now - (playhead - slow.start) / v;
-  }
-  state.speed = v;
-  slow.speedUsed = v;
-  saveSettings();
-  updateStatus(slow.active ? performance.now() - currentPlayhead(performance.now()) : 0);
-});
-
-buildSegment($('lagSeg'), MAX_LAGS, state.maxLag, (v) => `${v} s`, (v) => {
-  state.maxLag = v;
-  saveSettings();
+  speedSeg.appendChild(b);
 });
 
 function updateStatus(lagMs) {
   if (slow.active) {
     modeText.textContent = `RALENTIZADO ${fmt(state.speed)}x`;
-    statusEl.textContent = `Ralentizado a ${fmt(state.speed)}x · ${fmt((lagMs / 1000).toFixed(1))} s de retraso`;
+    const full = buffer.frames.length >= MAX_STORED_FRAMES ? ' · memoria llena, pulsa ▶' : '';
+    statusEl.textContent = `Ralentizado a ${fmt(state.speed)}x · ${fmt((lagMs / 1000).toFixed(1))} s por detrás${full}`;
   } else {
     modeText.textContent = 'EN DIRECTO';
     statusEl.textContent = 'Pulsa ▶ para ralentizar desde ahora';
@@ -568,12 +508,10 @@ function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     if (SPEEDS.includes(s.speed)) state.speed = s.speed;
-    if (MAX_LAGS.includes(s.maxLag)) state.maxLag = s.maxLag;
   } catch (e) { /* sin ajustes guardados */ }
 }
 function saveSettings() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ speed: state.speed, maxLag: state.maxLag })); }
-  catch (e) { /* ignorar */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ speed: state.speed })); } catch (e) { /* ignorar */ }
 }
 
 /* ---------- Mensajes ---------- */
@@ -587,17 +525,14 @@ function showError(msg, canRetry) {
 }
 overlayBtn.addEventListener('click', () => openCamera(state.facing));
 
-// Al volver de segundo plano, los frames guardados ya no sirven: se reinicia desde ahora.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (state.stream && video.paused) video.play().catch(() => {});
-  if (slow.active) { restartSlowFromNow(performance.now()); requestWakeLock(); }
+  if (slow.active) requestWakeLock();
 });
 
 /* ---------- Arranque ---------- */
-slow.speedUsed = state.speed;
 updateStatus(0);
-liveBtn.disabled = true;
 resizeCanvas();
 openCamera(state.facing);
 </script>
